@@ -2,31 +2,50 @@
 
 module Main (main) where
 
-import Control.Monad (forever)
-import qualified Data.ByteString.Char8 as BC
+import Control.Concurrent (forkFinally)
+import qualified Control.Exception as E
+import Control.Monad (unless, forever, void)
+import qualified Data.ByteString as S
 import Network.Socket
-import System.IO (BufferMode (..), hSetBuffering, stdout)
+import Network.Socket.ByteString (recv, sendAll)
+import Types.HTTPResponse
+
+readHTTPRequest :: Socket -> IO S.ByteString
+readHTTPRequest sock = do
+  chunk <- recv sock 1024
+  if S.length chunk < 1024 then
+    return chunk
+  else (chunk <>) <$> readHTTPRequest sock
 
 main :: IO ()
-main = do
-    hSetBuffering stdout LineBuffering
+main = runTCPServer Nothing "4221" talk
+  where
+    talk s = do
+        void $ readHTTPRequest s
+        sendAll s (render ok200)
 
-    let host = "127.0.0.1"
-        port = "4221"
-
-    BC.putStrLn $ "Listening on " <> BC.pack host <> ":" <> BC.pack port
-
-    -- Get address information for the given host and port
-    addrInfo <- getAddrInfo Nothing (Just host) (Just port)
-
-    serverSocket <- socket (addrFamily $ head addrInfo) Stream defaultProtocol
-    bind serverSocket $ addrAddress $ head addrInfo
-    listen serverSocket 5
-
-    -- Accept connections and handle them forever
-    forever $ do
-        (clientSocket, clientAddr) <- accept serverSocket
-        BC.putStrLn $ "Accepted connection from " <> BC.pack (show clientAddr) <> "."
-        -- Handle the clientSocket as needed...
-
-        close clientSocket
+-- from the "network-run" package.
+runTCPServer :: Maybe HostName -> ServiceName -> (Socket -> IO a) -> IO a
+runTCPServer mhost port server = withSocketsDo $ do
+    addr <- resolve
+    E.bracket (open addr) close loop
+  where
+    resolve = do
+        let hints = defaultHints {
+                addrFlags = [AI_PASSIVE]
+              , addrSocketType = Stream
+              }
+        head <$> getAddrInfo (Just hints) mhost (Just port)
+    open addr = E.bracketOnError (openSocket addr) close $ \sock -> do
+        setSocketOption sock ReuseAddr 1
+        withFdSocket sock setCloseOnExecIfNeeded
+        bind sock $ addrAddress addr
+        listen sock 1024
+        return sock
+    loop sock = forever $ E.bracketOnError (accept sock) (close . fst)
+        $ \(conn, _peer) -> void $
+            -- 'forkFinally' alone is unlikely to fail thus leaking @conn@,
+            -- but 'E.bracketOnError' above will be necessary if some
+            -- non-atomic setups (e.g. spawning a subprocess to handle
+            -- @conn@) before proper cleanup of @conn@ is your case
+            forkFinally (server conn) (const $ gracefulClose conn 5000)
