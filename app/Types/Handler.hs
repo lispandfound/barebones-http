@@ -43,6 +43,9 @@ instance Alternative Handler where
                          return . either (const r') pure $ r)
 
 
+liftIO :: IO a -> Handler a
+liftIO act = Handler (\_ -> act >>= return . Right)
+
 ask :: Handler HTTPRequest
 ask = Handler (return . return)
 
@@ -73,3 +76,8 @@ header :: ByteString -> Handler ByteString
 header h = do
   hs <- asks (assoc h . Resq.headers)
   maybe (throw err400) return $ hs
+
+method :: HTTPMethod -> Handler ()
+method m = do
+  matchesMethod <- asks ((== m) . Resq.method)
+  if matchesMethod then return () else throw err405

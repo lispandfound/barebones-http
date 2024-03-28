@@ -11,8 +11,8 @@ import Data.Functor (($>))
 import Data.List (find)
 import Data.Char (isAlphaNum,)
 
-data HTTPMethod = GET | POST | PUT | DELETE deriving Show
-data HTTPVersion = HTTP11 deriving Show
+data HTTPMethod = GET | POST | PUT | DELETE deriving (Show, Eq)
+data HTTPVersion = HTTP11 deriving (Show, Eq)
 
 data HTTPRequest = HTTPRequest {
   method :: HTTPMethod,

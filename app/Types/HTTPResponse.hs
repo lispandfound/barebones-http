@@ -2,7 +2,7 @@
 {-# LANGUAGE RecordWildCards #-}
 -- | Types for an HTTP Response
 
-module Types.HTTPResponse (HTTPResponse (..), ok200, err400, err500, err404, render, text)  where
+module Types.HTTPResponse (HTTPResponse (..), ok200, err400, err500, err404, err405, render, text, octet)  where
 
 import Data.ByteString.Char8 as B
 
@@ -19,6 +19,9 @@ status404 = StatusCode 404 "Not Found"
 
 status500 :: StatusCode
 status500 = StatusCode 500 "Internal Server Error"
+
+status405 :: StatusCode
+status405 = StatusCode 405 "Method Not Allowed"
 
 data HTTPResponse = HTTPResponse {
   status :: StatusCode,
@@ -67,7 +70,20 @@ err500 = HTTPResponse {
   body = mempty
                       }
 
+
+err405 :: HTTPResponse
+err405 = HTTPResponse {
+  status = status405,
+  headers = [],
+  body = mempty
+                      }
+
 text :: ByteString -> HTTPResponse
 text b = ok200 {
   headers = [ ("Content-Type", "text/plain"), ("Content-Length", (B.pack . show . B.length) b) ],
+  body = b }
+
+octet :: ByteString -> HTTPResponse
+octet b = ok200 {
+  headers = [ ("Content-Type", "application/octet-stream"), ("Content-Length", (B.pack . show . B.length) b) ],
   body = b }

@@ -5,14 +5,17 @@ module Main (main) where
 import Control.Concurrent (forkFinally)
 import qualified Control.Exception as E
 import Control.Monad (unless, forever, void)
-import qualified Data.ByteString as S
+import qualified Data.ByteString.Char8 as S
 import Network.Socket
 import Network.Socket.ByteString (recv, sendAll)
-import Types.HTTPRequest
+import Types.HTTPRequest (HTTPRequest, parseRequest, HTTPMethod(..))
 import Types.HTTPResponse
 import ReadP.ByteString
 import Types.Handler
 import Control.Applicative
+import System.Console.GetOpt
+import System.Exit (exitFailure)
+import System.Environment (getArgs)
 
 readHTTPRequest :: Socket -> IO (Maybe HTTPRequest)
 readHTTPRequest sock = do
@@ -25,21 +28,57 @@ readHTTPRequest sock = do
             return chunk
         else (chunk <>) <$> readAll s
 
-serverHandler :: Handler HTTPResponse
-serverHandler =
-  (prefix ["echo"] >> fmap (text . S.intercalate "/" . tail) reqPath)
-  <|> (route ["user-agent"] >> fmap text (header "User-Agent"))
-  <|> (route [] >> return ok200)
+serverHandler :: FilePath -> Handler HTTPResponse
+serverHandler dir =
+  (method GET >> prefix ["echo"] >> fmap (text . S.intercalate "/" . tail) reqPath)
+  <|> (method GET >> route ["user-agent"] >> fmap text (header "User-Agent"))
+  <|> (method GET >> prefix ["files"] >> serveFile dir)
+  <|> (method GET >> route [] >> return ok200)
   <|> throw err404
 
+readFileResp :: FilePath -> IO HTTPResponse
+readFileResp path = (octet <$> S.readFile path) `E.catch` err
+  where
+    err :: E.SomeException -> IO HTTPResponse
+    err = const $ return err404
+
+serveFile :: FilePath -> Handler HTTPResponse
+serveFile dir = do
+  suffixPath <- fmap (S.unpack . S.intercalate "/" . tail) reqPath
+  let fullPath = dir <> "/" <> suffixPath
+  resp <- liftIO $ readFileResp fullPath
+  return resp
+
+data Flag = Directory FilePath deriving (Show)
+
+options :: [ OptDescr Flag ]
+options = [ Option [] ["directory"] (ReqArg Directory "DIR") "Output directory to read files from"]
+
+compilerOpts :: [String] -> IO ([Flag], [String])
+compilerOpts argv =
+    case getOpt Permute options argv of
+        (o,n,[]  ) -> return (o,n)
+        (_,_,errs) -> ioError (userError (concat errs ++ usageInfo usage options))
+    where usage = "Usage: http-server --directory DIR"
+
+
 main :: IO ()
-main = runTCPServer Nothing "4221" talk
+main = do
+  argv <- getArgs
+  opts <- compilerOpts argv
+  case opts of
+    ([Directory dir], _) -> runServer dir
+    _ -> exitFailure
+
+
+runServer :: FilePath -> IO ()
+runServer dir = runTCPServer Nothing "4221" talk
   where
     talk s = do
         readR <- readHTTPRequest s
         case readR of
             Just req -> do
-              resp <- runHandler serverHandler req
+              resp <- runHandler (serverHandler dir) req
               sendAll s (render . either id id $ resp)
             Nothing -> sendAll s (render err400)
 
