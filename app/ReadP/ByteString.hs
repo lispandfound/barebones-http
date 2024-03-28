@@ -6,6 +6,7 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE FlexibleInstances #-}
 
 
 module ReadP.ByteString
@@ -58,6 +59,7 @@ module ReadP.ByteString
   )
  where
 
+import Data.String (IsString(..))
 import GHC.Unicode ( isSpace )
 import qualified GHC.List as L
 import GHC.Base hiding ( many )
@@ -157,6 +159,9 @@ instance Alternative P where
 -- The ReadP type
 
 newtype ReadP a = R (forall b . (a -> P b) -> P b)
+
+instance IsString (ReadP ByteString) where
+  fromString = string . B.pack
 
 -- | @since 2.01
 instance Functor ReadP where

@@ -8,21 +8,36 @@ import Control.Monad (unless, forever, void)
 import qualified Data.ByteString as S
 import Network.Socket
 import Network.Socket.ByteString (recv, sendAll)
+import Types.HTTPRequest
 import Types.HTTPResponse
+import ReadP.ByteString
+import Types.Handler
+import Control.Applicative
 
-readHTTPRequest :: Socket -> IO S.ByteString
+readHTTPRequest :: Socket -> IO (Maybe HTTPRequest)
 readHTTPRequest sock = do
-  chunk <- recv sock 1024
-  if S.length chunk < 1024 then
-    return chunk
-  else (chunk <>) <$> readHTTPRequest sock
+    d <- readAll sock
+    return $ parseRequest d
+  where
+    readAll s = do
+        chunk <- recv s 1024
+        if S.length chunk < 1024 then
+            return chunk
+        else (chunk <>) <$> readAll s
+
+serverHandler :: Handler HTTPResponse
+serverHandler = (route [] >> return ok200) <|> throw err404
 
 main :: IO ()
 main = runTCPServer Nothing "4221" talk
   where
     talk s = do
-        void $ readHTTPRequest s
-        sendAll s (render ok200)
+        readR <- readHTTPRequest s
+        case readR of
+            Just req -> do
+              resp <- runHandler serverHandler req
+              sendAll s (render . either id id $ resp)
+            Nothing -> sendAll s (render err400)
 
 -- from the "network-run" package.
 runTCPServer :: Maybe HostName -> ServiceName -> (Socket -> IO a) -> IO a
