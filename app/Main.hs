@@ -30,11 +30,12 @@ readHTTPRequest sock = do
 
 serverHandler :: FilePath -> Handler HTTPResponse
 serverHandler dir =
-  (method GET >> prefix ["echo"] >> fmap (text . S.intercalate "/" . tail) reqPath)
-  <|> (method GET >> route ["user-agent"] >> fmap text (header "User-Agent"))
-  <|> (method GET >> prefix ["files"] >> serveFile dir)
-  <|> (method GET >> route [] >> return ok200)
-  <|> throw err404
+  (prefix ["echo"] >> method GET >>  fmap (text . S.intercalate "/" . tail) reqPath)
+  <|> ( route ["user-agent"] >> method GET >> fmap text (header "User-Agent"))
+  <|> ( prefix ["files"] >> method POST >> contentType "application/octet-stream" >> postFile dir)
+  <|> ( prefix ["files"] >> method GET >> serveFile dir)
+  <|> ( route [] >> method GET >> return ok200)
+  <|> empty
 
 readFileResp :: FilePath -> IO HTTPResponse
 readFileResp path = (octet <$> S.readFile path) `E.catch` err
