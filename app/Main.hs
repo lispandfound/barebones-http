@@ -4,13 +4,13 @@ module Main (main) where
 
 import Control.Concurrent (forkFinally)
 import qualified Control.Exception as E
-import Control.Monad (unless, forever, void)
+import Control.Monad (forever, void)
 import qualified Data.ByteString.Char8 as S
 import Network.Socket
 import Network.Socket.ByteString (recv, sendAll)
 import Types.HTTPRequest (HTTPRequest, parseRequest, HTTPMethod(..))
+import qualified Types.HTTPRequest as Resq
 import Types.HTTPResponse
-import ReadP.ByteString
 import Types.Handler
 import Control.Applicative
 import System.Console.GetOpt
