@@ -18,7 +18,8 @@ data HTTPRequest = HTTPRequest {
   method :: HTTPMethod,
   path :: URL,
   version :: HTTPVersion,
-  headers :: [(ByteString, ByteString)]
+  headers :: [(ByteString, ByteString)],
+  body :: ByteString
                                } deriving (Show)
 
 data URL = URL {
@@ -56,11 +57,13 @@ parseRequestS =  readP_to_S request
                 hs <- pHeader
                 crlf
                 crlf
+                b <- rest
                 return $ HTTPRequest {
                 method = m,
                 path = p,
                 version = v,
-                headers = hs
+                headers = hs,
+                body = b
                                 }
         pMethod = choice [ string "GET" $> GET, string "POST" $> POST, string "PUT" $> PUT, string "DELETE" $> DELETE ]
         pVersion = string "HTTP/1.1" $> HTTP11
