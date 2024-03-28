@@ -2,6 +2,7 @@
 {-# LANGUAGE Trustworthy #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE PatternSynonyms #-}
@@ -48,6 +49,7 @@ module ReadP.ByteString
   chainl1,
   chainr1,
   manyTill,
+  rest,
 
   -- * Running a parser
   ReadS,
@@ -68,6 +70,8 @@ import qualified Data.ByteString.Char8 as B
 import Data.ByteString.Char8 (ByteString)
 
 import Control.Monad.Fail
+import Data.List.NonEmpty (singleton)
+import Control.Monad ((<=<))
 
 infixr 5 +++, <++
 
@@ -392,18 +396,18 @@ chainl p op x = chainl1 p op +++ return x
 chainr1 :: ReadP a -> ReadP (a -> a -> a) -> ReadP a
 -- ^ Like 'chainr', but parses one or more occurrences of @p@.
 chainr1 p op = scan
-  where scan   = p >>= rest
-        rest x = do f <- op
-                    y <- scan
-                    return (f x y)
+  where scan   = p >>= rest'
+        rest' x = do f <- op
+                     y <- scan
+                     return (f x y)
                  +++ return x
 
 chainl1 :: ReadP a -> ReadP (a -> a -> a) -> ReadP a
 -- ^ Like 'chainl', but parses one or more occurrences of @p@.
-chainl1 p op = p >>= rest
-  where rest x = do f <- op
-                    y <- p
-                    rest (f x y)
+chainl1 p op = p >>= rest'
+  where rest' x = do f <- op
+                     y <- p
+                     rest' (f x y)
                  +++ return x
 
 manyTill :: ReadP a -> ReadP end -> ReadP [a]
@@ -412,6 +416,9 @@ manyTill :: ReadP a -> ReadP end -> ReadP [a]
 manyTill p end = scan
   where scan = (end >> return []) <++ (liftM2 (:) p scan)
 
+rest :: ReadP ByteString
+rest = R (end <=< Look)
+  where end = Final . singleton . (,mempty)
 -- -- ---------------------------------------------------------------------------
 -- -- Converting between ReadP and Read
 
