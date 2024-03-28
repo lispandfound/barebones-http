@@ -50,6 +50,15 @@ serveFile dir = do
   resp <- liftIO $ readFileResp fullPath
   return resp
 
+postFile :: FilePath -> Handler HTTPResponse
+postFile dir = do
+  suffixPath <- fmap (S.unpack . S.intercalate "/" . tail) reqPath
+  contents <- asks Resq.body
+  let fullPath = dir <> "/" <> suffixPath
+  liftIO $ S.writeFile fullPath contents
+  return ok200
+
+
 data Flag = Directory FilePath deriving (Show)
 
 options :: [ OptDescr Flag ]
