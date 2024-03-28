@@ -2,11 +2,11 @@
 {-# LANGUAGE RecordWildCards #-}
 -- | Types for an HTTP Response
 
-module Types.HTTPResponse (HTTPResponse (..), ok200, err400, err500, err404, err405, render, text, octet)  where
+module Types.HTTPResponse (HTTPResponse (..), status200, status400, status404, status500, status405, ok200, err400, err500, err404, err405, render, text, octet)  where
 
 import Data.ByteString.Char8 as B
 
-data StatusCode = StatusCode Int ByteString
+data StatusCode = StatusCode Int ByteString deriving (Show, Eq)
 
 status200 :: StatusCode
 status200 = StatusCode 200 "OK"
