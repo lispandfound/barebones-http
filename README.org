@@ -1,0 +1,6 @@
+#+title: Barebones HTTP Server
+
+A ground-up implementation of an HTTP server in Haskell, intended as a demonstration of my technical abilities.
+
+
+* TODO flesh the rest of this out
