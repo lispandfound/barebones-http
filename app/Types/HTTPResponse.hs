@@ -2,7 +2,7 @@
 {-# LANGUAGE RecordWildCards #-}
 -- | Types for an HTTP Response
 
-module Types.HTTPResponse (HTTPResponse (..), ok200, err400, err500, err404, render, respondWith)  where
+module Types.HTTPResponse (HTTPResponse (..), ok200, err400, err500, err404, render, text)  where
 
 import Data.ByteString.Char8 as B
 
@@ -34,10 +34,9 @@ statusLine (StatusCode code status) = "HTTP/1.1 " <> (B.pack . show) code <> " "
 render :: HTTPResponse -> ByteString
 render (HTTPResponse {..}) = uncrlf [statusLine status,
                                         joinHeaders headers,
-                                        "",
                                         body]
   where
-    joinHeaders = foldMap (\(k, v) -> k <> ": " <> v <> "\n")
+    joinHeaders = foldMap (\(k, v) -> k <> ": " <> v <> "\r\n")
     uncrlf = B.intercalate "\r\n"
 
 ok200 :: HTTPResponse
@@ -68,5 +67,7 @@ err500 = HTTPResponse {
   body = mempty
                       }
 
-respondWith :: ByteString -> HTTPResponse
-respondWith b = ok200 { body = b }
+text :: ByteString -> HTTPResponse
+text b = ok200 {
+  headers = [ ("Content-Type", "text/plain"), ("Content-Length", (B.pack . show . B.length) b) ],
+  body = b }
