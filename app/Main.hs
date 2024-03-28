@@ -26,7 +26,7 @@ readHTTPRequest sock = do
         else (chunk <>) <$> readAll s
 
 serverHandler :: Handler HTTPResponse
-serverHandler = (prefix ["echo"] >> fmap text suff) <|> (route [] >> return ok200) <|> throw err404
+serverHandler = (prefix ["echo"] >> fmap (text . S.intercalate "/" . tail) reqPath) <|> (route [] >> return ok200) <|> throw err404
 
 main :: IO ()
 main = runTCPServer Nothing "4221" talk

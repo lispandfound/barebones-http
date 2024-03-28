@@ -63,6 +63,9 @@ param p = do
 prefix :: [ByteString] -> Handler ()
 prefix ps = asks ((ps `isPrefixOf`) . urlPath . path) >>= guard
 
+reqPath :: Handler [ByteString]
+reqPath = asks (urlPath . path)
+
 suff :: Handler ByteString
 suff = asks (last . urlPath . path)
 
