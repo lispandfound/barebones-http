@@ -9,7 +9,7 @@ import Data.ByteString.Char8 (ByteString)
 
 import Control.Applicative
 import Control.Monad
-import Data.List (find)
+import Data.List (find, isPrefixOf)
 
 newtype Handler a = Handler { runHandler :: (HTTPRequest -> IO (Either HTTPResponse a)) }
 
@@ -60,6 +60,11 @@ param p = do
   ps <- asks (assoc p . params . path)
   maybe (throw err400) return $ ps
 
+prefix :: [ByteString] -> Handler ()
+prefix ps = asks ((ps `isPrefixOf`) . urlPath . path) >>= guard
+
+suff :: Handler ByteString
+suff = asks (last . urlPath . path)
 
 header :: ByteString -> Handler ByteString
 header h = do

@@ -2,7 +2,7 @@
 {-# LANGUAGE RecordWildCards #-}
 -- | Types for an HTTP Response
 
-module Types.HTTPResponse (HTTPResponse (..), ok200, err400, err500, err404, render)  where
+module Types.HTTPResponse (HTTPResponse (..), ok200, err400, err500, err404, render, respondWith)  where
 
 import Data.ByteString.Char8 as B
 
@@ -25,6 +25,7 @@ data HTTPResponse = HTTPResponse {
   headers :: [(ByteString, ByteString)],
   body :: ByteString
   }
+
 
 
 statusLine :: StatusCode -> ByteString
@@ -66,3 +67,6 @@ err500 = HTTPResponse {
   headers = [],
   body = mempty
                       }
+
+respondWith :: ByteString -> HTTPResponse
+respondWith b = ok200 { body = b }
