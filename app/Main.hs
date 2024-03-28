@@ -43,7 +43,6 @@ main = runTCPServer Nothing "4221" talk
               sendAll s (render . either id id $ resp)
             Nothing -> sendAll s (render err400)
 
--- from the "network-run" package.
 runTCPServer :: Maybe HostName -> ServiceName -> (Socket -> IO a) -> IO a
 runTCPServer mhost port server = withSocketsDo $ do
     addr <- resolve
