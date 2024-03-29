@@ -136,6 +136,21 @@ request = do
         body = b
       }
 #+end_src
+* Testing
+Try it for yourself! Clone the repo create the =static= directory inside the repo and then run
+#+begin_src bash
+cabal run barebones-http -- --directory static
+#+end_src
+
+You can then test the endpoints with curl.
+#+begin_src bash
+$ curl -v localhost:4221/user-agent
+$ curl -XPOST -v localhost:4221/files/test.txt -H 'Content-Type: application/octet-stream' --data 'test content' # check the static directory after this
+$ curl -v localhost:4221/files/test.txt
+$ curl localhost:4221/echo/test324
+$ curl localhost:4221/no/path/found
+$ curl localhost:4221/ # should return 200 OK
+#+end_src
 * Improvements After Code Crafters
 
 After passing that challenge, I have refactored this code to use the
