@@ -30,7 +30,7 @@ readHTTPRequest sock = do
         else (chunk <>) <$> readAll s
 
 {- ORMOLU_DISABLE -}
-serverHandler :: FilePath -> RequestParser (Handler HTTPResponse)
+serverHandler :: FilePath -> Router (Handler HTTPResponse)
 serverHandler dir =
        prefix ["echo"] *> method GET $> fmap (text . S.intercalate "/" . tail) reqPath
   <||> route ["user-agent"] *> method GET $> fmap text (header "User-Agent")

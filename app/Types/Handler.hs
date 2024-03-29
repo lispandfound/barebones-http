@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Reimplementation of a ReaderT ExceptT monad stack to make request handling super simple
-module Types.Handler (RequestParser, Handler, route, param, prefix, reqPath, suff, header, method, contentType, runParser, (<||>)) where
+module Types.Handler (Router, Handler, route, param, prefix, reqPath, suff, header, method, contentType, runParser, (<||>)) where
 
 import Control.Monad.Except
 import Control.Monad.Identity (Identity, runIdentity)
@@ -15,16 +15,16 @@ type RequestHandler m a = ReaderT Req.HTTPRequest (ExceptT HTTPResponse m) a
 
 type Handler a = RequestHandler IO a
 
-type RequestParser a = RequestHandler Identity a
+type Router a = RequestHandler Identity a
 
 runHandler :: Handler HTTPResponse -> Req.HTTPRequest -> IO HTTPResponse
 runHandler handler = either return return <=< (runExceptT . runReaderT handler)
 
-runParser :: RequestParser (Handler HTTPResponse) -> Req.HTTPRequest -> IO HTTPResponse
+runParser :: Router (Handler HTTPResponse) -> Req.HTTPRequest -> IO HTTPResponse
 runParser parser req = either return (`runHandler` req) . runIdentity . runExceptT . runReaderT parser $ req
 
 -- This function specifies the order in which we should report errors among a
--- sequence of errors. Given a number of RequestParsers we can get a range of
+-- sequence of errors. Given a number of Routers we can get a range of
 -- different errors. We want to pick the error that most closely matches the
 -- user's expectation.  For example: We may a sequence of parsers h1, h2, and
 -- h3. h1 returns err404 because the route doesn't match, h2 returns a 405
@@ -51,7 +51,7 @@ maxError r r' = if status r `higherPriority` status r' then r else r'
 infixl 3 <||>
 
 -- This doesn't meet the strict definition of an alternative so we don't write it an alternative instance
-(<||>) :: RequestParser a -> RequestParser a -> RequestParser a
+(<||>) :: Router a -> Router a -> Router a
 h <||> h' = h `catchError` (\r -> h' `catchError` (throwError . maxError r))
 
 guardError :: (MonadError e m) => e -> Bool -> m ()
@@ -66,7 +66,7 @@ assoc key = fmap snd . find ((== key) . fst)
 
 param :: (Monad m) => ByteString -> RequestHandler m ByteString
 param p = do
-  ps <- asks (assoc p . Req.headers)
+  ps <- asks (assoc p . Req.params . Req.path)
   maybe (throwError err400) return ps
 
 prefix :: (Monad m) => [ByteString] -> RequestHandler m ()
