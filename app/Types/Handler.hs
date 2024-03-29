@@ -1,96 +1,92 @@
--- | Reimplementation of a ReaderT ExceptT monad stack to make request handling super simple
 {-# LANGUAGE OverloadedStrings #-}
-module Types.Handler (Handler (..), throw, liftIO, ask, asks, route, param, prefix, reqPath, suff, header, method, contentType) where
 
-import Types.HTTPResponse as Resp
-import qualified Types.HTTPRequest as Resq
+-- | Reimplementation of a ReaderT ExceptT monad stack to make request handling super simple
+module Types.Handler (RequestParser, Handler, route, param, prefix, reqPath, suff, header, method, contentType, runParser, (<||>)) where
 
+import Control.Monad.Except
+import Control.Monad.Identity (Identity, runIdentity)
+import Control.Monad.Reader
 import Data.ByteString.Char8 (ByteString)
-
-import Control.Applicative
-import Control.Monad
 import Data.List (find, isPrefixOf)
+import Types.HTTPRequest qualified as Req
+import Types.HTTPResponse as Resp
 
-newtype Handler a = Handler { runHandler :: (Resq.HTTPRequest -> IO (Either HTTPResponse a)) }
+type RequestHandler m a = ReaderT Req.HTTPRequest (ExceptT HTTPResponse m) a
 
-instance Functor Handler where
-  fmap f h = Handler $ fmap (fmap f) . (runHandler h)
+type Handler a = RequestHandler IO a
 
-instance Applicative Handler where
-  pure = Handler . const . return . return
-  fh <*> h = Handler $ (\r -> do
-                          f <- runHandler fh r
-                          h' <- runHandler h r
-                          return $ f <*> h')
+type RequestParser a = RequestHandler Identity a
 
-instance Monad Handler where
-  return = pure
-  h >>= f = Handler $ (\r -> do
-                          h' <- runHandler h r
-                          case h' of
-                            Left e -> return (Left e)
-                            Right v -> runHandler (f v) r)
+runHandler :: Handler HTTPResponse -> Req.HTTPRequest -> IO HTTPResponse
+runHandler handler = either return return <=< (runExceptT . runReaderT handler)
 
+runParser :: RequestParser (Handler HTTPResponse) -> Req.HTTPRequest -> IO HTTPResponse
+runParser parser req = either return (`runHandler` req) . runIdentity . runExceptT . runReaderT parser $ req
 
-throw :: HTTPResponse -> Handler a
-throw = Handler . const . return . Left
+-- This function specifies the order in which we should report errors among a
+-- sequence of errors. Given a number of RequestParsers we can get a range of
+-- different errors. We want to pick the error that most closely matches the
+-- user's expectation.  For example: We may a sequence of parsers h1, h2, and
+-- h3. h1 returns err404 because the route doesn't match, h2 returns a 405
+-- because the method doesn't match and h3 returns 415 because the content type
+-- doesn't match. In this situation the user was likely trying to activate the
+-- h3 endpoint but failed because of the content type. It's not a complete
+-- solution, but it's good enough.
+higherPriority :: StatusCode -> StatusCode -> Bool
+-- 404 is the lowest priority error
+(StatusCode 404 _) `higherPriority` _ = False
+-- 405 is lower than all error codes besides 404
+(StatusCode 405 _) `higherPriority` (StatusCode 404 _) = True
+(StatusCode 405 _) `higherPriority` _ = False
+-- 415 is lower than all priorities besides 404 and 405
+(StatusCode 415 _) `higherPriority` (StatusCode 404 _) = True
+(StatusCode 415 _) `higherPriority` (StatusCode 405 _) = True
+(StatusCode 415 _) `higherPriority` _ = False
+-- Otherwise, we assume that the first error
+_ `higherPriority` _ = True
 
-is404 :: Either HTTPResponse a -> Bool
-is404 (Right _) = False
-is404 (Left r) = status r == status404
+maxError :: HTTPResponse -> HTTPResponse -> HTTPResponse
+maxError r r' = if status r `higherPriority` status r' then r else r'
 
-instance Alternative Handler where
-  empty = throw err404
-  h <|> h' = Handler (\req -> do
-                         r <- runHandler h req
-                         r' <- runHandler h' req
-                         case r of
-                           Left e | status e `notElem` [status404, status405] -> return (Left e)
-                           Left e | status e == status405 && is404 r' -> return (Left e)
-                           Left e | status e `elem` [status404, status405] -> return r'
-                           Left e -> return (Left e)
-                           Right v -> return (Right v))
+infixl 3 <||>
 
+-- This doesn't meet the strict definition of an alternative so we don't write it an alternative instance
+(<||>) :: RequestParser a -> RequestParser a -> RequestParser a
+h <||> h' = h `catchError` (\r -> h' `catchError` (throwError . maxError r))
 
-liftIO :: IO a -> Handler a
-liftIO act = Handler (\_ -> act >>= return . Right)
+guardError :: (MonadError e m) => e -> Bool -> m ()
+guardError e False = throwError e
+guardError _ _ = return ()
 
-ask :: Handler Resq.HTTPRequest
-ask = Handler (return . return)
+route :: (Monad m) => [ByteString] -> RequestHandler m ()
+route ps = reqPath >>= guardError err404 . (ps ==)
 
-asks :: (Resq.HTTPRequest -> a) -> Handler a
-asks f = f <$> ask
-
-route :: [ByteString] -> Handler ()
-route ps = (== ps) <$> reqPath >>= guard
-
-assoc :: Eq a => a -> [(a, b)] -> Maybe b
+assoc :: (Eq a) => a -> [(a, b)] -> Maybe b
 assoc key = fmap snd . find ((== key) . fst)
 
-param :: ByteString -> Handler ByteString
+param :: (Monad m) => ByteString -> RequestHandler m ByteString
 param p = do
-  ps <- assoc p <$> asks Resq.headers
-  maybe (throw err400) return $ ps
+  ps <- asks (assoc p . Req.headers)
+  maybe (throwError err400) return ps
 
-prefix :: [ByteString] -> Handler ()
-prefix ps = (ps `isPrefixOf`) <$> reqPath >>= guard
+prefix :: (Monad m) => [ByteString] -> RequestHandler m ()
+prefix ps = reqPath >>= guardError err404 . (ps `isPrefixOf`)
 
-reqPath :: Handler [ByteString]
-reqPath = asks (Resq.urlPath . Resq.path)
+reqPath :: (Monad m) => RequestHandler m [ByteString]
+reqPath = asks (Req.urlPath . Req.path)
 
-suff :: Handler ByteString
+suff :: (Monad m) => RequestHandler m ByteString
 suff = last <$> reqPath
 
-header :: ByteString -> Handler ByteString
+header :: (Monad m) => ByteString -> RequestHandler m ByteString
 header h = do
-  hs <- asks (assoc h . Resq.headers)
-  maybe (throw err400) return $ hs
+  hs <- asks (assoc h . Req.headers)
+  maybe (throwError err400) return $ hs
 
-method :: Resq.HTTPMethod -> Handler ()
+method :: (Monad m) => Req.HTTPMethod -> RequestHandler m ()
 method m = do
-  matchesMethod <- asks ((== m) . Resq.method)
-  if matchesMethod then return () else throw err405
+  matchesMethod <- asks ((== m) . Req.method)
+  if matchesMethod then return () else throwError err405
 
-
-contentType :: ByteString -> Handler ()
-contentType mime = asks (maybe False (== mime) . assoc "Content-Type" . Resq.headers) >>= guard
+contentType :: (Monad m) => ByteString -> RequestHandler m ()
+contentType mime = asks ((== Just mime) . assoc "Content-Type" . Req.headers) >>= guardError err415
