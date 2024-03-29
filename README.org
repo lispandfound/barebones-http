@@ -1,6 +1,148 @@
 #+title: Barebones HTTP Server
 
-A ground-up implementation of an HTTP server in Haskell, intended as a demonstration of my technical abilities.
+A ground-up implementation of an HTTP server in Haskell, intended as a
+demonstration of my technical abilities.
 
+This project is based on the codecrafters [[https://app.codecrafters.io/courses/http-server][HTTP Server Challenge]]. This code will
+pass all eight stages of the HTTP server, but the last stage (POSTing a file) is
+locked behind a paywall. I have copied out that project and pushed it here, as
+well as finishing the last locked stage.
 
-* TODO flesh the rest of this out
+* Design
+
+This http server goes beyond the codecrafters challenge in the sense that I
+wrote an HTTP server implementation I might actually want to use. That meant I
+had to think in advance about I would engineer such a server to make it easy to
+implement web apps on top of it.  The biggest design considerations involve
+propagating HTTP errors, and designing the routing API. My key design axioms
+were as follows:
+
+1. Composability. By composability I mean that the router and handler should be
+   built out of small pieces. Rather than writing a large function that checks
+   the path, method and content type of a request during routing, I want to
+   write three small functions to check each of these and then compose them
+   together. Handler's likewise should be made out of small pieces that compose.
+2. Separation. Handlers should receive only valid requests. That necessitates
+   separating the problem of routing requests from handling requests. Ideally,
+   this would reflect in the type-system so that request routers can't perform
+   unbounded side effects (i.e. are functions of the requests only).
+3. Expressiveness. I should be able to easily add new routes. Ideally, the main
+   server should have a self-documenting expression. The aspiration is something
+   akin to FastAPI, Servant, or parser combinators.
+
+My solution is a "do what I mean" implementation that achieves all three of
+these aims with Monad transformers. To see it in action, just look at the implementation of the server.
+
+#+begin_src haskell
+serverHandler :: FilePath -> Router (Handler HTTPResponse)
+serverHandler dir =
+       prefix ["echo"] *> method GET $> fmap (text . S.intercalate "/" . tail) reqPath
+  <||> route ["user-agent"] *> method GET $> fmap text (header "User-Agent")
+  <||> prefix ["files"] *> method POST *> contentType "application/octet-stream" $> postFile dir
+  <||> prefix ["files"] *> method GET $> serveFile dir
+  <||> route [] *> method GET $> return ok200
+#+end_src
+
+Without even knowing the implementation of these functions (and perhaps without
+even knowing haskell) one can easily read off the endpoints, what HTTP methods
+they accept, their required content-types and their actions. The suggestive use
+of infix operators like =<||>= may have the reader wondering if we can "factor"
+handlers. The answer is yes. The following code defines an equivalent HTTP
+server.
+
+#+begin_src haskell
+serverHandler :: FilePath -> Router (Handler HTTPResponse)
+serverHandler dir =
+       prefix ["echo"] *> method GET $> fmap (text . S.intercalate "/" . tail) reqPath
+  <||> route ["user-agent"] *> method GET $> fmap text (header "User-Agent")
+  <||> prefix ["files"] *> (method POST *> contentType "application/octet-stream" $> postFile dir
+                       <||> method GET $> serveFile dir)
+  <||> route [] *> method GET $> return ok200
+#+end_src
+
+Despite =Router= and =Handler= being seemingly different types, they are defined in terms of a root type =RequestHandler=.
+
+#+begin_src haskell
+type RequestHandler m a = ReaderT Req.HTTPRequest (ExceptT HTTPResponse m) a
+
+type Handler a = RequestHandler IO a
+
+type Router a = RequestHandler Identity a
+#+end_src
+
+This allows us to write code that works for both handlers and routers simultaneously while maintaining separation between the two in implementation. For example consider the following code block.
+
+#+begin_src haskell
+-- From Types.Handler
+assoc :: (Eq a) => a -> [(a, b)] -> Maybe b
+assoc key = fmap snd . find ((== key) . fst)
+
+param :: (Monad m) => ByteString -> RequestHandler m ByteString
+param p = do
+  ps <- asks (assoc p . Req.params . Req.path)
+  maybe (throwError err400) return ps
+
+getCustomer :: IO HTTPResponse
+
+server = route ["api", "customer"] *> method [GET] *> void (param "id") $> fmap getCustomer (param "id")
+#+end_src
+
+The endpoint =/api/customer= expects the =id= query parameter to be supplied
+(i.e. valid endpoint would be something like =/api/customer?id=1=). We reuse the
+implementation for =param= in the request router and the handler. However, the
+following would not compile because you would be trying to do I/O in the routing
+phase.
+
+#+begin_src haskell
+checkCustomerExists :: RequestHandler IO ()
+getCustomer :: IO ()
+
+server = route ["api", "customer"] *> method [GET] *> (param "id" >>= checkCustomerExists) $> fmap getCustomer (param "id")
+#+end_src
+
+Here the =checkCustomerExists= function would presumably read from a database
+and check the customer exists first. But this means the routing of this request
+is no longer pure and hence the alternative operator =<||>= would not decide the
+routing deterministically! The type-system prevents this by requiring the
+request router does not perform I/O. This kind of compiler-enforced "bounded effect" checking is precisely
+what makes haskell a useful language in highly stateful systems --- contrary to
+conventional wisdom about functional programming languages in real world
+environments.
+
+** Parsing HTTP Requests
+
+Incoming requests are read from a socket as ByteStrings. To parse these requests
+into the =HTTPRequest= object, I re-implemented the =ReadP= parser combinator
+library in the standard library with ByteStrings instead of regular strings.
+Thus, the HTTPRequest parsing code reads in a declarative fashion like a description of the HTTP request RFC
+
+#+begin_src haskell
+request = do
+  m <- pMethod
+  space
+  p <- url
+  space
+  v <- pVersion
+  crlf
+  hs <- pHeader
+  crlf
+  crlf
+  b <- rest
+  return $ HTTPRequest
+      { method = m,
+        path = p,
+        version = v,
+        headers = hs,
+        body = b
+      }
+#+end_src
+* Improvements After Code Crafters
+
+After passing that challenge, I have refactored this code to use the
+transformers library. This allows me to achieve a clean HTTP routing
+implementation while separating concerns between handling and routing incoming
+requests.
+
+I will also port the HTTP request parsing to use attoparsec, instead of my
+custom ReadP implementation for ByteStrings. I only wrote this because
+codecrafters forbade any dependencies besides bytestring and network.
