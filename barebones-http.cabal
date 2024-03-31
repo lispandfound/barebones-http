@@ -69,7 +69,7 @@ executable barebones-http
     -- other-extensions:
 
     -- Other library packages from which modules are imported.
-    build-depends:    base ^>=4.17.2.1, bytestring, network, mtl, transformers
+    build-depends:    base ^>=4.17.2.1, bytestring, network, mtl, transformers, attoparsec
 
     -- Directories containing source files.
     hs-source-dirs:   app

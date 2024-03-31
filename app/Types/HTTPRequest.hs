@@ -4,12 +4,10 @@
 module Types.HTTPRequest where
 
 import Control.Monad (void)
+import Data.Attoparsec.ByteString.Char8
 import Data.ByteString.Char8 (ByteString)
-import Data.ByteString.Char8 qualified as B
 import Data.Char (isAlphaNum)
 import Data.Functor (($>))
-import Data.List (find)
-import ReadP.ByteString
 
 data HTTPMethod = GET | POST | PUT | DELETE deriving (Show, Eq)
 
@@ -33,34 +31,30 @@ data URL = URL
 isSafe :: Char -> Bool
 isSafe = (`elem` ['$', '-', '_', '@', '.', '&', '+', '-'])
 
-url :: ReadP URL
-url = URL <$> (char '/' >> (component `sepBy` char '/')) <*> (option [] pParam)
+url :: Parser URL
+url = URL <$> (char '/' >> (component `sepBy` char '/')) <*> option [] pParam
   where
-    component = munch1 (\c -> isAlphaNum c || isSafe c)
-    pParam = char '?' >> (keyvalue `sepBy` char '&')
-    keyvalue = (,) <$> key <*> (char '=' >> value)
-    key = munch isAlphaNum
+    component = takeWhile1 (\c -> isAlphaNum c || isSafe c)
+    pParam = char '?' >> (keyvalue `sepBy` "&")
+    keyvalue = (,) <$> key <*> ("=" >> value)
+    key = takeWhile1 isAlphaNum
     value = key
 
 parseRequest :: ByteString -> Maybe HTTPRequest
-parseRequest = fmap fst . find (B.null . snd) . parseRequestS
-
-parseRequestS :: ByteString -> [(HTTPRequest, ByteString)]
-parseRequestS = readP_to_S request
+parseRequest = either (const Nothing) Just . parseOnly request
   where
-    space = void $ char ' '
     crlf = void $ string "\r\n"
     request = do
       m <- pMethod
-      space
+      void space
       p <- url
-      space
+      void space
       v <- pVersion
       crlf
       hs <- pHeader
       crlf
       crlf
-      b <- rest
+      b <- takeByteString
       return $
         HTTPRequest
           { method = m,
@@ -71,8 +65,8 @@ parseRequestS = readP_to_S request
           }
     pMethod = choice [string "GET" $> GET, string "POST" $> POST, string "PUT" $> PUT, string "DELETE" $> DELETE]
     pVersion = string "HTTP/1.1" $> HTTP11
-    pHeader = keyvalue `sepBy` crlf
+    pHeader = keyvalue `sepBy1` crlf
     isExtra = (`elem` ("!#$&'()*+,/:;=?@[]%-_.~" :: String))
     keyvalue = (,) <$> key <*> (string ": " >> value)
-    value = munch1 (\c -> isAlphaNum c || isExtra c)
-    key = munch1 (\c -> isAlphaNum c || isSafe c)
+    value = takeWhile1 (\c -> isAlphaNum c || isExtra c)
+    key = takeWhile1 (\c -> isAlphaNum c || isSafe c)
