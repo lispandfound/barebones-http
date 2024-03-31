@@ -158,6 +158,4 @@ transformers library. This allows me to achieve a clean HTTP routing
 implementation while separating concerns between handling and routing incoming
 requests.
 
-I will also port the HTTP request parsing to use attoparsec, instead of my
-custom ReadP implementation for ByteStrings. I only wrote this because
-codecrafters forbade any dependencies besides bytestring and network.
+I have also swapped out the original reimplementation of ReadP for ByteString to use Attoparsec instead.
