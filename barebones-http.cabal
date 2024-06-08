@@ -63,7 +63,7 @@ executable barebones-http
     main-is:          Main.hs
 
     -- Modules included in this executable, other than Main.
-    other-modules: ReadP.ByteString, Types.HTTPRequest, Types.HTTPResponse, Types.Handler
+    other-modules: Types.HTTPRequest, Types.HTTPResponse, Types.Handler
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
